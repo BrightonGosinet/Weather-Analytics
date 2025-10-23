@@ -1,6 +1,8 @@
 import requests
 from config.settings import settings
 
+
+
 class WeatherCollector:
     BASE_URL = "https://api.openweathermap.org/data/2.5/weather"
 
@@ -15,7 +17,11 @@ class WeatherCollector:
             'units': 'metric'  # Celsius
         }
 
-        response = requests.get(self.BASE_URL, params=params)
+        response = requests.get(
+            self.BASE_URL,
+            params=params,
+            timeout = 10
+        )
         response.raise_for_status()
         return response.json()
 

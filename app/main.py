@@ -3,6 +3,8 @@ from fastapi.params import Query
 from sqlalchemy.orm import Session
 from typing import List
 import requests
+from datetime import datetime, timedelta
+from sqlalchemy import func
 
 from app.database import engine, get_db, Base
 from app.models import WeatherData
@@ -89,3 +91,46 @@ def get_all_weather(
         .all()
 
     return weather_data
+
+@app.get("/analytics/average-temp/{city}", tags=["Analytics"])
+def get_average_temperature(
+    city: str,
+    days: int = Query(default=7, ge=1, le=30, description="Number of days to average"),
+    db: Session = Depends(get_db)
+):
+    # Calculate the date threshold (N days ago)
+    threshold_date = datetime.utcnow() - timedelta(days=days)
+
+    weather_records = db.query(WeatherData)\
+        .filter(WeatherData.city.ilike(f"%{city}%")) \
+        .filter(WeatherData.timestamp >= threshold_date)\
+        .all()
+
+    # Check if we have data
+    if not weather_records:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No weather data found for city: {city} in the last {days} days"
+        )
+
+    # Calculate statistics
+    temperatures = [record.temperature for record in weather_records]
+    avg_temp = sum(temperatures) / len(temperatures)
+    min_temp = min(temperatures)
+    max_temp = max(temperatures)
+
+    # Get date range
+    timestamps = [record.timestamp for record in weather_records]
+    period_start = min(timestamps)
+    period_end = max(timestamps)
+
+    return {
+        "city": weather_records[0].city,  # Use actual city name from DB
+        "days_analyzed": days,
+        "average_temperature": round(avg_temp, 1),
+        "min_temperature": round(min_temp, 1),
+        "max_temperature": round(max_temp, 1),
+        "data_points": len(weather_records),
+        "period_start": period_start.isoformat(),
+        "period_end": period_end.isoformat()
+    }

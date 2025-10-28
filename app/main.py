@@ -1,10 +1,10 @@
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.params import Query
 from sqlalchemy.orm import Session
+from sqlalchemy import desc, func
 from typing import List
 import requests
 from datetime import datetime, timedelta
-from sqlalchemy import func
 
 from app.database import engine, get_db, Base
 from app.models import WeatherData
@@ -133,4 +133,124 @@ def get_average_temperature(
         "data_points": len(weather_records),
         "period_start": period_start.isoformat(),
         "period_end": period_end.isoformat()
+    }
+
+@app.get("/analytics/compare", tags=["Analytics"])
+def compare_cities(
+        cities: str = Query(..., description="Comma-separated city names (e.g., 'Edmonton,Tokyo,London')"),
+    db: Session = Depends(get_db)
+):
+    city_lst = [city.strip() for city in cities.split(",")]
+
+    if len(city_lst) > 10:
+        raise HTTPException(
+            status_code=400,
+            detail="Maximum 10 cities allowed for comparison"
+        )
+
+    # Get latest weather data for each city
+    comparison_data = []
+    for city in city_lst:
+
+        # Get most recent record for this city
+        latest_weather = db.query(WeatherData) \
+            .filter(WeatherData.city.ilike(f"%{city}%")) \
+            .order_by(WeatherData.timestamp.desc()) \
+            .first()
+
+        if latest_weather:
+            comparison_data.append({
+                "city": latest_weather.city,
+                "country": latest_weather.country,
+                "temperature": round(latest_weather.temperature, 1),
+                "feels_like": round(latest_weather.feels_like, 1),
+                "humidity": latest_weather.humidity,
+                "weather": latest_weather.weather_main,
+                "description": latest_weather.weather_description,
+                "timestamp": latest_weather.timestamp.isoformat()
+            })
+        else:
+            comparison_data.append({
+                "city": city,
+                "error": "No data available"
+            })
+
+    # Filter cities with errors
+    valid_data = [c for c in comparison_data if "error" not in c]
+
+    if not valid_data:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No weather data found for any of the specified cities"
+        )
+
+    # Find hottest and coldest
+    hottest = max(valid_data, key=lambda x: x["temperature"])
+    coldest = min(valid_data, key=lambda x: x["temperature"])
+    temp_range = hottest["temperature"] - coldest["temperature"]
+
+    return {
+        "cities_compared": len(valid_data),
+        "timestamp": datetime.utcnow().isoformat(),
+        "comparison": comparison_data,
+        "hottest_city": hottest["city"],
+        "hottest_temperature": round(hottest["temperature"], 1),
+        "coldest_city": coldest["city"],
+        "coldest_temperature": round(coldest["temperature"], 1),
+        "temperature_range": round(temp_range, 1)
+    }
+
+@app.get("/analytics/hottest", tags=["Analytics"])
+def get_hottest_cities(
+    limit: int = Query(default=5, ge=1, le=20, description="Number of cities to return"),
+    metric: str = Query(default="hottest", regex="^(hottest|coldest)$", description="Sort by hottest or coldest"),
+    db: Session = Depends(get_db)
+):
+    # Subquery: Get max timestamp for each city
+    subquery = db.query(
+        WeatherData.city,
+        func.max(WeatherData.timestamp).label('max_timestamp')
+    ).group_by(WeatherData.city).subquery()
+
+    # Main query: Get full records for those latest timestamps
+    latest_records = db.query(WeatherData).join(
+        subquery,
+        (WeatherData.city == subquery.c.city) &
+        (WeatherData.timestamp == subquery.c.max_timestamp)
+    ).all()
+
+    if not latest_records:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No weather data available"
+        )
+
+    # Sort by temperature
+    if metric == "hottest":
+        sorted_records = sorted(latest_records, key=lambda x: x.temperature, reverse=True)
+    else:
+        sorted_records = sorted(latest_records, key=lambda x: x.temperature)
+
+    top_cities = sorted_records[:limit]
+
+    rankings = []
+    for rank, record in enumerate(top_cities, start=1):
+        rankings.append({
+            "rank": rank,
+            "city": record.city,
+            "country": record.country,
+            "temperature": round(record.temperature, 1),
+            "feels_like": round(record.feels_like, 1),
+            "humidity": record.humidity,
+            "weather": record.weather_main,
+            "description": record.weather_description,
+            "last_updated": record.timestamp.isoformat()
+        })
+
+    return {
+        "metric": metric,
+        "cities_analyzed": len(latest_records),
+        "results_returned": len(rankings),
+        "timestamp": datetime.utcnow().isoformat(),
+        "rankings": rankings
     }

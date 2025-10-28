@@ -254,3 +254,113 @@ def get_hottest_cities(
         "timestamp": datetime.utcnow().isoformat(),
         "rankings": rankings
     }
+
+@app.get("/analytics/alerts", tags=["Analytics"])
+def get_weather_alerts(db: Session = Depends(get_db)):
+
+    # Get the most recent record for each city
+    subquery = db.query(
+        WeatherData.city,
+        func.max(WeatherData.timestamp).label('max_timestamp')
+    ).group_by(WeatherData.city).subquery()
+
+    latest_records = db.query(WeatherData).join(
+        subquery,
+        (WeatherData.city == subquery.c.city) &
+        (WeatherData.timestamp == subquery.c.max_timestamp)
+    ).all()
+
+    if not latest_records:
+        raise HTTPException(
+            status_code=404,
+            detail="No weather data available for monitoring"
+        )
+
+    # Define alert thresholds
+    EXTREME_HEAT = 35.0  # °C
+    EXTREME_COLD = -20.0  # °C
+    HIGH_HUMIDITY = 90  # %
+    LOW_HUMIDITY = 20  # %
+
+    alerts = []
+    safe_cities = []
+
+    for record in latest_records:
+        city_alerts = []
+
+        # Check for extreme heat
+        if record.temperature > EXTREME_HEAT:
+            city_alerts.append({
+                "alert_type": "extreme_heat",
+                "severity": "high",
+                "city": record.city,
+                "country": record.country,
+                "temperature": round(record.temperature, 1),
+                "feels_like": round(record.feels_like, 1),
+                "threshold": EXTREME_HEAT,
+                "message": f"Extreme heat: {round(record.temperature, 1)}°C (feels like {round(record.feels_like, 1)}°C)",
+                "last_updated": record.timestamp.isoformat()
+            })
+
+        # Check for extreme cold
+        if record.temperature < EXTREME_COLD:
+            city_alerts.append({
+                "alert_type": "extreme_cold",
+                "severity": "high",
+                "city": record.city,
+                "country": record.country,
+                "temperature": round(record.temperature, 1),
+                "feels_like": round(record.feels_like, 1),
+                "threshold": EXTREME_COLD,
+                "message": f"Extreme cold: {round(record.temperature, 1)}°C (feels like {round(record.feels_like, 1)}°C)",
+                "last_updated": record.timestamp.isoformat()
+            })
+
+        # Check for high humidity
+        if record.humidity > HIGH_HUMIDITY:
+            city_alerts.append({
+                "alert_type": "high_humidity",
+                "severity": "medium",
+                "city": record.city,
+                "country": record.country,
+                "humidity": record.humidity,
+                "threshold": HIGH_HUMIDITY,
+                "message": f"Very high humidity: {record.humidity}%",
+                "last_updated": record.timestamp.isoformat()
+            })
+
+        # Check for low humidity
+        if record.humidity < LOW_HUMIDITY:
+            city_alerts.append({
+                "alert_type": "low_humidity",
+                "severity": "low",
+                "city": record.city,
+                "country": record.country,
+                "humidity": record.humidity,
+                "threshold": LOW_HUMIDITY,
+                "message": f"Very low humidity: {record.humidity}%",
+                "last_updated": record.timestamp.isoformat()
+            })
+
+        if city_alerts:
+            alerts.extend(city_alerts)
+        else:
+            safe_cities.append(record.city)
+
+    # Sort alerts by severity
+    severity_order = {"high": 0, "medium": 1, "low": 2}
+    alerts.sort(key=lambda x: severity_order[x["severity"]])
+
+    return {
+        "timestamp": datetime.utcnow().isoformat(),
+        "total_cities_monitored": len(latest_records),
+        "alerts_count": len(alerts),
+        "alerts": alerts,
+        "safe_cities": safe_cities,
+        "thresholds": {
+            "extreme_heat": f"> {EXTREME_HEAT}°C",
+            "extreme_cold": f"< {EXTREME_COLD}°C",
+            "high_humidity": f"> {HIGH_HUMIDITY}%",
+            "low_humidity": f"< {LOW_HUMIDITY}%"
+        }
+    }

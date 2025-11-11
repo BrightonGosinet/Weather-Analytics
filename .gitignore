@@ -10,6 +10,8 @@ __pycache__/
 
 # Environment variables (API keys, secrets)
 .env
+.env.local
+.env.aws
 
 # IDE
 .idea/

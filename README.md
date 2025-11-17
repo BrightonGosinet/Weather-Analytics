@@ -7,16 +7,6 @@ A cloud-based REST API for collecting, storing, and analyzing real-time weather 
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14-blue)
 ![AWS](https://img.shields.io/badge/AWS-RDS-orange)
 
-## 📋 Table of Contents
-
-- [Features](#features)
-- [Tech Stack](#tech-stack)
-- [Architecture](#architecture)
-- [API Endpoints](#api-endpoints)
-- [Setup Instructions](#setup-instructions)
-- [Cloud Deployment](#cloud-deployment)
-- [Usage Examples](#usage-examples)
-- [Project Structure](#project-structure)
 
 ## Features
 
@@ -74,7 +64,7 @@ A cloud-based REST API for collecting, storing, and analyzing real-time weather 
          ↓
 ┌──────────────────┐      ┌──────────────────┐
 │  Data Collector  │─────→│  Data Processor  │
-│  (Python Script) │      │     (Pandas)     │
+│  (Python Script) │      │     (Pydantic)   │
 └──────────────────┘      └────────┬─────────┘
          ↑                         │
          │                         ↓

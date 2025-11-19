@@ -76,4 +76,3 @@ The API provides 8 endpoints for weather data operations:
   - `GET /analytics/hottest` - Hottest/coldest rankings
   - `GET /analytics/alerts` - Extreme weather detection
 
-
